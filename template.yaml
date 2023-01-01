@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Posts API
+
+Parameters:
+  User:
+    Type: String
+    Default: db_iam_user
+    Description: Database user
+  Name:
+    Type: String
+    Default: journal
+    Description: Database name
+  Host:
+    Type: String
+    Default: <DATABASE_HOST>
+    Description: Database host prefix
+  Cluster:
+    Type: String
+    Default: <DATABASE_RESOURCEID>
+    Description: Database cluster
+  Vpc:
+    Type: String
+    Default: <VPCID>
+    Description: RDS Vpc
+  Subnet:
+    Type: String
+    Default: <SUBNETID>
+    Description: RDS Subnet
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: dotnet6
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        DB_USER: !Ref User
+        DB_HOST: !Sub "${Host}.${AWS::Region}.rds.amazonaws.com"
+        DB_NAME: !Ref Name
+
+Resources:
+  RDSPasswordlessPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - rds-db:connect
+            Resource: !Sub "arn:aws:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:${Cluster}/${User}"
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: lambda security group
+      VpcId: !Ref Vpc
+
+  RegisterPostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: dotnet6
+      Handler: RegisterPost::RegisterPost.Function::FunctionHandler
+      CodeUri: ./src/RegisterPost/
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref Subnet
+      Policies:
+        - AWSLambda_FullAccess
+        - AWSLambdaVPCAccessExecutionRole
+        - !Ref RDSPasswordlessPolicy
+      Events:
+        RegisterPost:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: post
+
+  ListPostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: ListPosts::ListPosts.Function::FunctionHandler
+      CodeUri: ./src/ListPosts/
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref Subnet
+      Policies:
+        - AWSLambda_FullAccess
+        - AWSLambdaVPCAccessExecutionRole
+        - !Ref RDSPasswordlessPolicy
+      Events:
+        ListPosts:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: get
+
+Outputs:
+  PostsApi:
+    Description: "API Gateway endpoint URL for Prod stage for posts api"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/posts/"
